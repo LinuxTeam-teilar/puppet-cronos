@@ -1,0 +1,30 @@
+#!/bin/bash
+
+useradd $1 -G cronos-dev,users -m
+cd /home/$1
+USER_PW=`cat /dev/urandom | tr -cd [:alnum:] | head -c 15`
+MYSQL_PW=`cat /dev/urandom | tr -cd [:alnum:] | head -c 15`
+echo "dastergon:${USER_PW}" | chpasswd
+echo "${USER_PW}" > .pass
+chown $1: .pass
+chmod 600 .pass
+mysql -u root -p -h 194.42.50.157 -e \
+    "CREATE DATABASE cronos_$1;
+    GRANT ALL ON *.* TO 'cronos_$1'@'cronos.teilar.gr' IDENTIFIED BY '${MYSQL_PW}';
+    GRANT ALL ON *.* TO 'cronos_$1'@'linuxteam.teilar.gr' IDENTIFIED BY '${MYSQL_PW}';
+    FLUSH PRIVILEGES;"
+su -c "git clone git://github.com/LinuxTeam-teilar/cronos.teilar.gr" $1
+cd cronos.teilar.gr
+su -c "cp cronos/local_settings.py.sample cronos/local_settings.py" $1
+sed -i \
+    -e "s#backends.sqlite3#backends.mysql#" \
+    -e "s#'NAME': 'cronos.db'#'NAME': 'cronos_$1'#" \
+    -e "s#'USER': ''#'USER': 'cronos_$1'#" \
+    -e "s#'PASSWORD': ''#'PASSWORD': '${MYSQL_PW}'#" \
+    -e "s#'HOST': ''#'HOST': '194.42.50.157'#" \
+    -e "s#INSTANCE_NAME = 'cronos'#INSTANCE_NAME = 'cronos_$1'#" \
+    cronos/local_settings.py
+chmod 600 cronos/local_settings.py
+su -c "python manage.py syncdb --noinput" $1
+su -c "python manage.py loaddata tests/fixtures/admin_account.json" $1
+su -c "bin/update_cronos.sh -p . -r -d -v" $1
